@@ -26,9 +26,9 @@ namespace Mirror.WebRTC
 		public string headerUserAgent = "mirror-webrtc";
 
 		/// <summary>
-		/// URL to the signaling server.
+		/// URL to the signaling server (e.g. "wss://mysignalserver.glitch.me")
 		/// </summary>
-		public string serverURL = SERVER_URL (e.g. "wss://mysignalserver.glitch.me")
+		public string serverURL;
 
 		public WebSocket WebSocket { get; private set; }
 		RTCTransport rtcTransport;
