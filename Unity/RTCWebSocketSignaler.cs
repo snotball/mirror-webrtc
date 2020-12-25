@@ -253,21 +253,6 @@ namespace Mirror.WebRTC
 				return;
 			}
 
-			if (rtcTransport.serverConnections.Count >= NetworkManager.singleton.maxConnections)
-			{
-				Debug.LogError($"{GetType().Name}: Server full");
-
-				Send(new SignalMessage
-				{
-					type = SignalMessage.Type.Decline,
-					from = LoginID,
-					to = message.from,
-					data = "Server full"
-				});
-
-				return;
-			}
-
 			try
 			{
 				Debug.Log($"{GetType().Name}: Creating Answer\n");
@@ -381,7 +366,7 @@ namespace Mirror.WebRTC
 		/// <param name="message">The received SignalMessage.</param>
 		void ReceiveDecline(SignalMessage message)
 		{
-			throw new NotImplementedException();
+			NetworkManager.singleton.StopClient();
 		}
 
 		/// <summary>
