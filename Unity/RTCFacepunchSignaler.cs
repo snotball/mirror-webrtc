@@ -1,156 +1,113 @@
-﻿using System.Collections.Generic;
-using UnityEngine;
-using NativeWebSocket;
+﻿using Mirror;
+using Steamworks;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using Unity.WebRTC;
+using UnityEngine;
 
 namespace Mirror.WebRTC
 {
-	[RequireComponent(typeof(RTCTransport))]
-	public class RTCWebSocketSignaler : RTCSignaler
-	{
+    [RequireComponent(typeof(RTCTransport))]
+    public class RTCFacepunchSignaler : RTCSignaler
+    {
 		[Serializable]
 		class SignalMessage
 		{
 			public enum Type { Offer, Answer, Decline, IceCandidate }
 			public Type type;
-			public string from;
-			public string to;
 			public string data;
 		}
 
-		/// <summary>
-		/// "user-agent" request header
-		/// </summary>
-		public string headerUserAgent = "mirror-webrtc";
+        public uint steamAppID = 480;
+        public bool allowP2PPacketRelay = true;
 
-		/// <summary>
-		/// URL to the signaling server.
-		/// </summary>
-		public string serverURL = "wss://mirror-webrtc.glitch.me";
-
-		public WebSocket WebSocket { get; private set; }
 		RTCTransport rtcTransport;
-		Dictionary<string, int> serverFromToId;
+		Dictionary<SteamId, int> serverSteamIDToId;
 
-		public WebSocketState WebSocketState => WebSocket == null ? WebSocketState.Closed : WebSocket.State;
-		public string LoginID { get; private set; }
+		public bool IsConnected => SteamClient.IsValid && SteamClient.IsLoggedOn;
 
 		void Start()
 		{
 			rtcTransport = GetComponent<RTCTransport>();
-			rtcTransport.OnServerStart += () => serverFromToId = new Dictionary<string, int>();
-			rtcTransport.OnServerStop += () => serverFromToId = null;
+			rtcTransport.OnServerStart += () => serverSteamIDToId = new Dictionary<SteamId, int>();
+			rtcTransport.OnServerStop += () => serverSteamIDToId = null;
+
+			try
+            {
+                SteamClient.Init(steamAppID, true);
+                SteamNetworking.AllowP2PPacketRelay(allowP2PPacketRelay);
+
+                SteamNetworking.OnP2PSessionRequest += SteamNetworking_OnP2PSessionRequest;
+                SteamNetworking.OnP2PConnectionFailed += SteamNetworking_OnP2PConnectionFailed;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"{GetType().Name}: Error initializing Steam\n{exception}");
+            }
+
+            if (IsConnected)
+                InvokeRepeating(nameof(PollP2PPackets), 0, 0.5f);
+        }
+
+		void OnApplicationQuit()
+		{
+            SteamNetworking.OnP2PSessionRequest -= SteamNetworking_OnP2PSessionRequest;
+            SteamNetworking.OnP2PConnectionFailed -= SteamNetworking_OnP2PConnectionFailed;
+
+            SteamClient.Shutdown();
 		}
 
-		void Update()
+		void SteamNetworking_OnP2PSessionRequest(SteamId steamID) => SteamNetworking.AcceptP2PSessionWithUser(steamID);
+		void SteamNetworking_OnP2PConnectionFailed(SteamId steamID, P2PSessionError error) => SteamNetworking.CloseP2PSessionWithUser(steamID);
+
+		void PollP2PPackets()
 		{
-#if !UNITY_WEBGL || UNITY_EDITOR
-			if (WebSocket != null)
-				WebSocket.DispatchMessageQueue();
-#endif
-		}
-
-		void OnDestroy()
-		{
-			Close();
-		}
-
-		/// <summary>
-		/// Close the WebSocket connection.
-		/// </summary>
-		public async void Close()
-		{
-			if (WebSocket == null)
-				return;
-
-			Debug.Log($"{GetType().Name}: Close\n");
-
-			await WebSocket.Close();
-			WebSocket = null;
-			LoginID = null;
-		}
-
-		/// <summary>
-		/// Connect to the WebSocket Signaling Server with a unique LoginID.
-		/// If LoginID is already in use on the server, the connection will be closed.
-		/// </summary>
-		/// <param name="id">A unique LoginID for signaling identification.</param>
-		public async void Connect(string id)
-		{
-			if (WebSocket != null)
-				return;
-
-			Debug.Log($"{GetType().Name}: Connect\n");
-
-			Dictionary<string, string> requestHeaders = new Dictionary<string, string>
+			while (SteamNetworking.IsP2PPacketAvailable())
 			{
-				{ "user-agent", headerUserAgent },
-				{ "login-id", id }
-			};
+                var packet = SteamNetworking.ReadP2PPacket();
 
-			WebSocket = new WebSocket(serverURL, requestHeaders);
+				if (!packet.HasValue)
+					continue;
 
-			WebSocket.OnOpen += () =>
-			{
-				Debug.Log($"{GetType().Name}: OnOpen\n'{id}'");
-				LoginID = id;
-			};
-
-			WebSocket.OnError += (error) =>
-			{
-				Debug.LogError($"{GetType().Name}: OnError\n{error}");
-				Close();
-			};
-
-			WebSocket.OnClose += (closeCode) =>
-			{
-				Debug.Log($"{GetType().Name}: OnClose\n'{closeCode}'");
-				Close();
-			};
-
-			WebSocket.OnMessage += (bytes) =>
-			{
 				try
 				{
-					string json = Encoding.UTF8.GetString(bytes);
+					string json = Encoding.UTF8.GetString(packet.Value.Data);
 					SignalMessage message = JsonUtility.FromJson<SignalMessage>(json);
 
-					Debug.Log($"{GetType().Name}: Received {message.type}\nFrom: {message.from}");
+					Debug.Log($"{GetType().Name}: Received {message.type}\nFrom: {packet.Value.SteamId.Value}");
 
 					if (message.type == SignalMessage.Type.Offer)
-						ReceiveOffer(message);
+						ReceiveOffer(packet.Value.SteamId, message);
 					else if (message.type == SignalMessage.Type.Answer)
-						ReceiveAnswer(message);
+						ReceiveAnswer(packet.Value.SteamId, message);
 					else if (message.type == SignalMessage.Type.Decline)
-						ReceiveDecline(message);
+						ReceiveDecline(packet.Value.SteamId, message);
 					else if (message.type == SignalMessage.Type.IceCandidate)
-						ReceiveIceCandidate(message);
+						ReceiveIceCandidate(packet.Value.SteamId, message);
 				}
 				catch (Exception exception)
 				{
 					Debug.LogError($"{GetType().Name}: Error parsing received message\n{exception}");
 				}
-			};
-
-			await WebSocket.Connect();
+			}
 		}
 
 		/// <summary>
-		/// Send a fully decorated SignalMessage to someone on the server.
+		/// Send a fully decorated SignalMessage to a specific SteamID.
 		/// </summary>
 		/// <param name="message">The SignalMessage to send.</param>
-		async void Send(SignalMessage message)
+		void Send(SteamId steamID, SignalMessage message)
 		{
 			try
 			{
-				Debug.Log($"{GetType().Name}: Sending {message.type}\nTo: {message.to}");
+				Debug.Log($"{GetType().Name}: Sending {message.type}\nTo: {steamID}");
 
 				string json = JsonUtility.ToJson(message);
 				byte[] bytes = Encoding.UTF8.GetBytes(json);
 
-				await WebSocket.Send(bytes);
+				SteamNetworking.SendP2PPacket(steamID, bytes, bytes.Length);
 			}
 			catch (Exception exception)
 			{
@@ -159,18 +116,36 @@ namespace Mirror.WebRTC
 		}
 
 		/// <summary>
-		/// As a Client, offer to join a Host via WebSocket signaling.
+		/// As a Client, offer to join a Host via Facepunch signaling.
 		/// </summary>
-		/// <param name="recipientID">WebSocket LoginID of Host we wish to join.</param>
-		public override async void Offer(string recipientID)
+		/// <param name="address">String variant of SteamID of Host we wish to join.</param>
+		public override void Offer(string address)
 		{
-			if (string.IsNullOrEmpty(LoginID))
+			try
 			{
-				Debug.LogError($"{GetType().Name}: Not logged in\n");
+				SteamId steamID = ulong.Parse(address);
+				Offer(steamID);
+			}
+			catch (Exception exception)
+			{
+				Debug.LogError($"{GetType().Name}: Invalid address: {address}\n{exception}");
+				return;
+			}
+		}
+
+		/// <summary>
+		/// As a Client, offer to join a Host via Facepunch signaling.
+		/// </summary>
+		/// <param name="recipientID">SteamID of Host we wish to join.</param>
+		public async void Offer(SteamId recipientID)
+		{
+			if (!IsConnected)
+			{
+				Debug.LogError($"{GetType().Name}: Not logged in to Steam\n");
 				return;
 			}
 
-			if (string.IsNullOrEmpty(recipientID) || string.IsNullOrWhiteSpace(recipientID))
+			if (!recipientID.IsValid)
 			{
 				Debug.LogError($"{GetType().Name}: Invalid RecipientID\n{recipientID}");
 				return;
@@ -182,11 +157,9 @@ namespace Mirror.WebRTC
 
 				RTCConnection connection = await RTCConnection.CreateOffer(rtcTransport, (iceCandidate) =>
 				{
-					Send(new SignalMessage
+					Send(recipientID, new SignalMessage
 					{
 						type = SignalMessage.Type.IceCandidate,
-						from = LoginID,
-						to = recipientID,
 						data = JsonUtility.ToJson(iceCandidate)
 					});
 				});
@@ -210,11 +183,9 @@ namespace Mirror.WebRTC
 					rtcTransport.OnClientDataReceived.Invoke(new ArraySegment<byte>(bytes), channel);
 				};
 
-				Send(new SignalMessage
+				Send(recipientID, new SignalMessage
 				{
 					type = SignalMessage.Type.Offer,
-					from = LoginID,
-					to = recipientID,
 					data = JsonUtility.ToJson(connection.LocalDescription)
 				});
 			}
@@ -231,20 +202,18 @@ namespace Mirror.WebRTC
 		}
 
 		/// <summary>
-		/// As a Host, receive an Offer SignalMessage from a Client via the signaling server.
+		/// As a Host, receive an Offer SignalMessage from a Client via Facepunch signaling.
 		/// </summary>
 		/// <param name="message">The received SignalMessage.</param>
-		async void ReceiveOffer(SignalMessage message)
+		async void ReceiveOffer(SteamId steamID, SignalMessage message)
 		{
 			if (!rtcTransport.ServerActive())
 			{
 				Debug.LogError($"{GetType().Name}: Server not active\n");
 
-				Send(new SignalMessage
+				Send(steamID, new SignalMessage
 				{
 					type = SignalMessage.Type.Decline,
-					from = LoginID,
-					to = message.from,
 					data = "Server not active"
 				});
 
@@ -258,17 +227,15 @@ namespace Mirror.WebRTC
 				RTCSessionDescription remoteDescription = JsonUtility.FromJson<RTCSessionDescription>(message.data);
 				RTCConnection connection = await RTCConnection.CreateAnswer(rtcTransport, (iceCandidate) =>
 				{
-					Send(new SignalMessage
+					Send(steamID, new SignalMessage
 					{
 						type = SignalMessage.Type.IceCandidate,
-						from = LoginID,
-						to = message.from,
 						data = JsonUtility.ToJson(iceCandidate)
 					});
 				}, remoteDescription);
 
 				int connectionID = rtcTransport.serverNextConnectionID++;
-				serverFromToId.Add(message.from, connectionID);
+				serverSteamIDToId.Add(steamID, connectionID);
 				rtcTransport.serverConnections.Add(connectionID, connection);
 
 				connection.DataChannels_OnOpen += () =>
@@ -286,7 +253,7 @@ namespace Mirror.WebRTC
 					}
 
 					Debug.Log($"{connection.GetType().Name}: DataChannels_OnClose\nInvoking OnServerDisconnected");
-					serverFromToId.Remove(message.from);
+					serverSteamIDToId.Remove(steamID);
 					rtcTransport.serverConnections.Remove(connectionID);
 					rtcTransport.OnServerDisconnected.Invoke(connectionID);
 				};
@@ -296,11 +263,9 @@ namespace Mirror.WebRTC
 					rtcTransport.OnServerDataReceived.Invoke(connectionID, new ArraySegment<byte>(bytes), channel);
 				};
 
-				Send(new SignalMessage
+				Send(steamID, new SignalMessage
 				{
 					type = SignalMessage.Type.Answer,
-					from = LoginID,
-					to = message.from,
 					data = JsonUtility.ToJson(connection.LocalDescription)
 				});
 			}
@@ -322,10 +287,10 @@ namespace Mirror.WebRTC
 		}
 
 		/// <summary>
-		/// As a Client, receive an Answer SignalMessage from a Host via the signaling server.
+		/// As a Client, receive an Answer SignalMessage from a Host via Facepunch signaling.
 		/// </summary>
 		/// <param name="message">The received SignalMessage.</param>
-		async void ReceiveAnswer(SignalMessage message)
+		async void ReceiveAnswer(SteamId steamID, SignalMessage message)
 		{
 			if (rtcTransport.clientConnection == null)
 			{
@@ -359,10 +324,10 @@ namespace Mirror.WebRTC
 		}
 
 		/// <summary>
-		/// As a Client, receive a Decline SignalMessage from a Host via the signaling server.
+		/// As a Client, receive a Decline SignalMessage from a Host via Facepunch signaling.
 		/// </summary>
 		/// <param name="message">The received SignalMessage.</param>
-		void ReceiveDecline(SignalMessage message)
+		void ReceiveDecline(SteamId steamID, SignalMessage message)
 		{
 			NetworkManager.singleton.StopClient();
 		}
@@ -371,11 +336,11 @@ namespace Mirror.WebRTC
 		/// As either Client or Host, receive an ICE Candidate SignalMessage relating to an active RTCConnection.
 		/// </summary>
 		/// <param name="message">The received SignalMessage.</param>
-		void ReceiveIceCandidate(SignalMessage message)
+		void ReceiveIceCandidate(SteamId steamID, SignalMessage message)
 		{
 			if (rtcTransport.serverConnections != null)
 			{
-				if (serverFromToId.TryGetValue(message.from, out int connectionKey) && rtcTransport.serverConnections.TryGetValue(connectionKey, out RTCConnection serverConnection))
+				if (serverSteamIDToId.TryGetValue(steamID, out int connectionKey) && rtcTransport.serverConnections.TryGetValue(connectionKey, out RTCConnection serverConnection))
 				{
 					try
 					{
@@ -389,7 +354,7 @@ namespace Mirror.WebRTC
 				}
 				else
 				{
-					Debug.LogError($"{GetType().Name}: Server - ICE Candidate connection not found\n{message.from}");
+					Debug.LogError($"{GetType().Name}: Server - ICE Candidate connection not found\n{steamID}");
 				}
 			}
 			else if (rtcTransport.clientConnection != null)

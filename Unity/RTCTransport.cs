@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Unity.WebRTC;
 using UnityEngine;
@@ -7,6 +7,8 @@ namespace Mirror.WebRTC
 {
 	public class RTCTransport : Transport
 	{
+		public RTCSignaler activeSignaler;
+
 		static bool initialized;
 
 		public string[] stunUrls = new string[]
@@ -54,8 +56,6 @@ namespace Mirror.WebRTC
 		#region Client
 		internal RTCConnection clientConnection;
 
-		public event Action<string> OnClientConnect;
-
 		public override bool ClientConnected() => clientConnection != null && clientConnection.IsConnected;
 
 		public override void ClientConnect(string address)
@@ -73,7 +73,8 @@ namespace Mirror.WebRTC
 			}
 
 			Debug.Log($"{GetType().Name}: ClientConnect\n");
-			OnClientConnect?.Invoke(address);
+
+			activeSignaler.Offer(address);
 		}
 
 		public override void ClientSend(int channelId, ArraySegment<byte> segment)

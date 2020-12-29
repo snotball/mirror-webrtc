@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System.Net.WebSockets;
 using UnityEngine;
@@ -9,16 +9,21 @@ namespace Mirror.WebRTC
 	public class RTCWebSocketSignalerHUD : MonoBehaviour
 	{
 		public bool showGUI = true;
-
-		RTCWebSocketSignaler webSocketSignaler;
-		RTCTransport rtcTransport;
+		public Vector2Int offset = new Vector2Int(-165, 0);
 
 		string loginID = "Host";
+		bool toggle = true;
+
+		RTCWebSocketSignaler webSocketSignaler;
 
 		private void Awake()
 		{
 			webSocketSignaler = GetComponent<RTCWebSocketSignaler>();
-			rtcTransport = GetComponent<RTCTransport>();
+
+#if UNITY_EDITOR
+			if (Application.dataPath.ToLower().Contains("symlink"))
+				loginID = "Client";
+#endif
 		}
 
 		private void OnGUI()
@@ -26,39 +31,36 @@ namespace Mirror.WebRTC
 			if (!showGUI)
 				return;
 
-			GUILayout.BeginArea(new Rect(Screen.width - 150, 0, 150, Screen.height));
+			GUILayout.BeginArea
+			(
+				new Rect
+				(
+					offset.x + (offset.x < 0 ? Screen.width : 0),
+					offset.y + (offset.y < 0 ? Screen.height : 0),
+					160,
+					Screen.height
+				)
+			);
 
-			GUILayout.Label($"WebSocket: {webSocketSignaler.WebSocketState}");
+			toggle = GUILayout.Toggle(toggle, $" {webSocketSignaler.GetType().Name}");
 
-			GUI.enabled = webSocketSignaler.WebSocketState == NativeWebSocket.WebSocketState.Closed;
-			loginID = GUILayout.TextField(loginID);
-
-			GUILayout.BeginHorizontal();
-
-			if (GUILayout.Button("Connect"))
-				webSocketSignaler.Connect(loginID);
-
-			GUI.enabled = webSocketSignaler.WebSocketState == NativeWebSocket.WebSocketState.Open;
-			if (GUILayout.Button("Close"))
-				webSocketSignaler.Close();
-
-			GUILayout.EndHorizontal();
-
-			GUI.enabled = webSocketSignaler.WebSocketState == NativeWebSocket.WebSocketState.Open && !NetworkServer.active && !NetworkClient.active;
-
-			if (rtcTransport.clientConnection != null)
+			if (toggle)
 			{
-				GUILayout.Label($"Client");
-				GUILayout.Label($"{rtcTransport.clientConnection}");
-			}
-			else if (rtcTransport.serverConnections != null)
-			{
-				GUILayout.Label($"Server");
+				GUILayout.Label($"WebSocket: {webSocketSignaler.WebSocketState}");
 
-				foreach (var kvp in rtcTransport.serverConnections)
-				{
-					GUILayout.Label($"({kvp.Key}) {kvp.Value}");
-				}
+				GUI.enabled = webSocketSignaler.WebSocketState == NativeWebSocket.WebSocketState.Closed;
+				loginID = GUILayout.TextField(loginID);
+
+				GUILayout.BeginHorizontal();
+
+				if (GUILayout.Button("Connect"))
+					webSocketSignaler.Connect(loginID);
+
+				GUI.enabled = webSocketSignaler.WebSocketState == NativeWebSocket.WebSocketState.Open;
+				if (GUILayout.Button("Close"))
+					webSocketSignaler.Close();
+
+				GUILayout.EndHorizontal();
 			}
 
 			GUILayout.EndArea();
