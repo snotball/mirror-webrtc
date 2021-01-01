@@ -60,7 +60,7 @@ When the _offer_ is sent, the message will typically have a brief delay because 
 [RTCFacepunchSignalerHUD](./Unity/RTCFacepunchSignalerHUD.cs) is a toggleable user interface for connection to Steamworks. It shows its current status, the users' SteamID, and a button for copying said ID to clipboard for ease of use. It is this ID that clients must use when _offering_ to join a host via Facepunch.Steamworks signaling.
 
 ## Platform support
-At the time of writing, this project has only been tested between Windows standalone clients, but it should theoretically work within the intersection of its dependencies. Obviously, some Signalers only work on certain platforms, and should be stripped from the project.
+At the time of writing, this project has only been tested between Windows standalone clients, but it should theoretically work within the intersection of its dependencies. Obviously, some signalers only work on certain platforms, and should be stripped from the project.
 
 ## Disclaimer
 This is a rudimentary implementation at best and should only serve as inspiration or reference, as it does _not_ have any security layers whatsoever at this point.
