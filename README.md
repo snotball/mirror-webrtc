@@ -12,7 +12,7 @@ Just like classic NAT hole punching, the STUN process _can_ fail on complex netw
 
 ## Transport
 
-[RTCTransport](./Unity/RTCTransport.cs) should be added as a neighbor to the NetworkManager Component and be assigned as its active transport. It bears a reference to an active signaler which will be utilized when connecting to Hosts via NetworkManager.StartClient() and in turn the NetworkManager.networkAddress field. Furthermore, it exposes a string array of URLs for which STUN servers to use. Lastly, an array of data channels and their reliability type.
+[RTCTransport](./Unity/RTCTransport.cs) should be added as a neighbor to the [NetworkManager](https://mirror-networking.com/docs/Articles/Components/NetworkManager.html) Component and be assigned as its active transport. It bears a reference to an active signaler which will be utilized when connecting to Hosts via NetworkManager.StartClient() and in turn the NetworkManager.networkAddress field. Furthermore, it exposes a string array of URLs for which STUN servers to use. Lastly, an array of data channels and their reliability type.
 
 ##### Dependencies
 
@@ -27,7 +27,7 @@ Just like classic NAT hole punching, the STUN process _can_ fail on complex netw
 
 With WebRTC, signaling can be done in any way you desire; it can be any arbitrary method of sending a handfuld of messages back and forth between peers, so they can establish [RTCConnections](./Unity/RTCConnection.cs). When joining a host, the client _offers_ his connection information to the host via signaling, which the host decides to _answer_ with his connection information.
 
-[RTCSignaler](./Unity/RTCSignaler.cs) is a base class that all signalers must inherit from to integrate with the transport. Signalers should be added as neighbors to the transport Component.
+[RTCSignaler](./Unity/RTCSignaler.cs) is an abstract base class that all signalers must inherit from to integrate with the transport. Signalers should be added as neighbors to the transport Component.
 
 In this implementation, multiple signalers can function in parallel allowing for better cross-platform support. The following signalers are optional and can be picked and chosen at will. Because established connections are separate from the signaling process itself, signaling services can be started or stopped independently of game sessions.
 
@@ -60,7 +60,7 @@ When the _offer_ is sent, the message will typically have a brief delay because 
 [RTCFacepunchSignalerHUD](./Unity/RTCFacepunchSignalerHUD.cs) is a toggleable user interface for connection to Steamworks. It shows its current status, the users' SteamID, and a button for copying said ID to clipboard for ease of use. It is this ID that clients must use when _offering_ to join a host via Facepunch.Steamworks signaling.
 
 ## Platform support
-At the time of writing, this project has only been tested between Windows standalone clients, but it should theoretically work within the intersection of its dependencies. Obviously, Facepunch.Steamworks will not work on iOS and Android devices, and should _not_ be included in your project.
+At the time of writing, this project has only been tested between Windows standalone clients, but it should theoretically work within the intersection of its dependencies. Obviously, some Signalers only work on certain platforms, and should be stripped from the project.
 
 ## Disclaimer
 This is a rudimentary implementation at best and should only serve as inspiration or reference, as it does _not_ have any security layers whatsoever at this point.
